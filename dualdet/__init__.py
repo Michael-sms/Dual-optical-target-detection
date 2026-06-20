@@ -1,5 +1,21 @@
 """Dual-optical target detection package."""
 
-from dualdet.models import DualStreamBackbone, MultiScaleQAF, QAFFusionBlock, QAFOutput
+from dualdet.models import (
+    AnchorFreeDetectHead,
+    DualStreamBackbone,
+    MultiScaleQAF,
+    PANFPN,
+    QAFDetector,
+    QAFFusionBlock,
+    QAFOutput,
+)
 
-__all__ = ["DualStreamBackbone", "MultiScaleQAF", "QAFFusionBlock", "QAFOutput"]
+__all__ = [
+    "AnchorFreeDetectHead",
+    "DualStreamBackbone",
+    "MultiScaleQAF",
+    "PANFPN",
+    "QAFDetector",
+    "QAFFusionBlock",
+    "QAFOutput",
+]
