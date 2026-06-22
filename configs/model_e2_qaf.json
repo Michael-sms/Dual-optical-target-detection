@@ -1,0 +1,12 @@
+{
+  "experiment_name": "E2_quality_aware_fusion",
+  "fusion_mode": "qaf",
+  "class_names": ["car", "truck", "bus", "van", "freight_car"],
+  "input_height": 512,
+  "input_width": 640,
+  "width_multiple": 0.5,
+  "depth_multiple": 0.33,
+  "max_channels": 512,
+  "neck_repeats": 1,
+  "reg_max": 16
+}

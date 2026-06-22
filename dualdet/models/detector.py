@@ -10,7 +10,7 @@ from torch import Tensor, nn
 from dualdet.models.backbone import DualStreamBackbone
 from dualdet.models.head import AnchorFreeDetectHead, ScalePredictions
 from dualdet.models.neck import PANFPN
-from dualdet.models.qaf import MultiScaleQAF
+from dualdet.models.qaf import FusionMode, MultiScaleQAF
 
 
 class DetectorOutput(NamedTuple):
@@ -31,6 +31,7 @@ class QAFDetector(nn.Module):
         max_channels: int = 512,
         neck_repeats: int = 1,
         reg_max: int = 16,
+        fusion_mode: FusionMode = "qaf",
     ) -> None:
         super().__init__()
         self.backbone = DualStreamBackbone(
@@ -38,7 +39,9 @@ class QAFDetector(nn.Module):
             depth_multiple=depth_multiple,
             max_channels=max_channels,
         )
-        self.qaf = MultiScaleQAF(self.backbone.feature_channels)
+        self.qaf = MultiScaleQAF(
+            self.backbone.feature_channels, fusion_mode=fusion_mode
+        )
         self.neck = PANFPN(self.backbone.feature_channels, repeats=neck_repeats)
         self.head = AnchorFreeDetectHead(
             self.neck.feature_channels,

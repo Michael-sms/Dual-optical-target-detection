@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import NamedTuple
+from typing import Literal, NamedTuple
 
 import torch
 from torch import Tensor, nn
 
 from dualdet.models.backbone import ConvBNAct, FeaturePyramid
+
+FusionMode = Literal["fixed", "qaf"]
 
 
 class QAFOutput(NamedTuple):
@@ -79,14 +81,19 @@ class QAFFusionBlock(nn.Module):
         deviation = features.std(dim=(2, 3), unbiased=False)
         return torch.cat((average, deviation), dim=1)
 
-    def forward(self, rgb: Tensor, tir: Tensor) -> tuple[Tensor, Tensor]:
+    def forward(
+        self, rgb: Tensor, tir: Tensor, use_quality_gate: bool = True
+    ) -> tuple[Tensor, Tensor]:
         """Return a fused feature map and normalized ``[RGB, TIR]`` weights."""
 
         self._validate_inputs(rgb, tir)
-        descriptor = torch.cat(
-            (self._quality_descriptor(rgb), self._quality_descriptor(tir)), dim=1
-        )
-        weights = self.quality_mlp(descriptor).softmax(dim=1)
+        if use_quality_gate:
+            descriptor = torch.cat(
+                (self._quality_descriptor(rgb), self._quality_descriptor(tir)), dim=1
+            )
+            weights = self.quality_mlp(descriptor).softmax(dim=1)
+        else:
+            weights = rgb.new_full((rgb.shape[0], 2), 0.5)
         rgb_weight = weights[:, 0].view(-1, 1, 1, 1)
         tir_weight = weights[:, 1].view(-1, 1, 1, 1)
         fused = self.projection(rgb_weight * rgb + tir_weight * tir)
@@ -103,6 +110,7 @@ class MultiScaleQAF(nn.Module):
         feature_channels: Mapping[str, int],
         reduction: int = 16,
         min_hidden_channels: int = 8,
+        fusion_mode: FusionMode = "qaf",
     ) -> None:
         super().__init__()
         missing = set(self.feature_names) - set(feature_channels)
@@ -112,6 +120,8 @@ class MultiScaleQAF(nn.Module):
                 "feature_channels must contain exactly p3, p4 and p5; "
                 f"missing={sorted(missing)}, extra={sorted(extra)}"
             )
+        self._fusion_mode: FusionMode = "qaf"
+        self.set_fusion_mode(fusion_mode)
         self.blocks = nn.ModuleDict(
             {
                 level: QAFFusionBlock(
@@ -120,6 +130,19 @@ class MultiScaleQAF(nn.Module):
                 for level in self.feature_names
             }
         )
+
+    @property
+    def fusion_mode(self) -> FusionMode:
+        """Active fusion strategy: learned QAF or fixed equal weighting."""
+
+        return self._fusion_mode
+
+    def set_fusion_mode(self, fusion_mode: FusionMode) -> None:
+        """Switch strategy without changing module structure or parameters."""
+
+        if fusion_mode not in ("fixed", "qaf"):
+            raise ValueError("fusion_mode must be 'fixed' or 'qaf'")
+        self._fusion_mode = fusion_mode
 
     @staticmethod
     def _validate_pyramid(name: str, pyramid: Mapping[str, Tensor]) -> None:
@@ -144,6 +167,8 @@ class MultiScaleQAF(nn.Module):
         modality_weights: dict[str, Tensor] = {}
         for level in self.feature_names:
             fused_features[level], modality_weights[level] = self.blocks[level](
-                rgb_features[level], tir_features[level]
+                rgb_features[level],
+                tir_features[level],
+                use_quality_gate=self.fusion_mode == "qaf",
             )
         return QAFOutput(fused_features, modality_weights)
