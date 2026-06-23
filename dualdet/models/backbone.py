@@ -236,6 +236,7 @@ class DualStreamBackbone(nn.Module):
         self.p3_stage = SharedStage(channels[1], channels[2], repeats[1])
         self.p4_stage = SharedStage(channels[2], channels[3], repeats[2])
         self.p5_stage = SharedStage(channels[3], channels[4], repeats[3])
+        self._stem_feature_channels = channels[1]
         self._feature_channels = dict(zip(self.feature_names, channels[2:], strict=True))
 
     @property
@@ -243,6 +244,18 @@ class DualStreamBackbone(nn.Module):
         """Channel count for each returned pyramid level."""
 
         return self._feature_channels.copy()
+
+    @property
+    def stem_feature_channels(self) -> int:
+        """Channel count of the stride-4 shallow stem feature used as P2."""
+
+        return self._stem_feature_channels
+
+    @property
+    def feature_channels_with_p2(self) -> Mapping[str, int]:
+        """Channel count for optional P2 plus the standard P3/P4/P5 levels."""
+
+        return {"p2": self.stem_feature_channels, **self.feature_channels}
 
     @staticmethod
     def _validate_inputs(rgb: Tensor, tir: Tensor) -> None:
@@ -270,4 +283,14 @@ class DualStreamBackbone(nn.Module):
         self._validate_inputs(rgb, tir)
         rgb_features = self._forward_shared(self.rgb_stem(rgb), "rgb")
         tir_features = self._forward_shared(self.tir_stem(tir), "tir")
+        return {"rgb": rgb_features, "tir": tir_features}
+
+    def forward_with_p2(self, rgb: Tensor, tir: Tensor) -> DualFeaturePyramid:
+        """Return stride-4 P2 plus standard P3/P4/P5 modality features."""
+
+        self._validate_inputs(rgb, tir)
+        rgb_p2 = self.rgb_stem(rgb)
+        tir_p2 = self.tir_stem(tir)
+        rgb_features = {"p2": rgb_p2, **self._forward_shared(rgb_p2, "rgb")}
+        tir_features = {"p2": tir_p2, **self._forward_shared(tir_p2, "tir")}
         return {"rgb": rgb_features, "tir": tir_features}

@@ -8,5 +8,6 @@
   "depth_multiple": 0.33,
   "max_channels": 512,
   "neck_repeats": 1,
-  "reg_max": 16
+  "reg_max": 16,
+  "use_p2_head": false
 }

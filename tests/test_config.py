@@ -18,7 +18,19 @@ def test_e1_e2_configs_differ_only_by_experiment_and_fusion_mode() -> None:
 
     assert fixed.fusion_mode == "fixed"
     assert qaf.fusion_mode == "qaf"
+    assert not fixed.use_p2_head
+    assert not qaf.use_p2_head
     assert fixed.controlled_signature() == qaf.controlled_signature()
+
+
+def test_e2_e3_configs_differ_only_by_experiment_and_p2_head() -> None:
+    qaf = ModelConfig.from_json(PROJECT_ROOT / "configs/model_e2_qaf.json")
+    p2 = ModelConfig.from_json(PROJECT_ROOT / "configs/model_e3_qaf_p2.json")
+
+    assert qaf.fusion_mode == p2.fusion_mode == "qaf"
+    assert not qaf.use_p2_head
+    assert p2.use_p2_head
+    assert qaf.p2_controlled_signature() == p2.p2_controlled_signature()
 
 
 def test_fixed_and_qaf_detectors_have_identical_parameter_counts() -> None:
@@ -66,6 +78,14 @@ def test_config_builds_model_with_requested_mode() -> None:
 
     assert model.qaf.fusion_mode == "fixed"
     assert model.head.num_classes == 5
+
+
+def test_config_builds_p2_model_when_requested() -> None:
+    config = ModelConfig.from_json(PROJECT_ROOT / "configs/model_e3_qaf_p2.json")
+    model = config.build_model()
+
+    assert model.use_p2_head
+    assert set(model.head.feature_names) == {"p2", "p3", "p4", "p5"}
 
 
 @pytest.mark.parametrize("mode", ["mean", "dynamic", ""])

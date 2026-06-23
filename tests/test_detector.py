@@ -3,10 +3,11 @@
 import pytest
 import torch
 
-from dualdet.models import AnchorFreeDetectHead, PANFPN, QAFDetector
+from dualdet.models import AnchorFreeDetectHead, P2PANFPN, PANFPN, QAFDetector
 
 
 CHANNELS = {"p3": 16, "p4": 32, "p5": 64}
+P2_CHANNELS = {"p2": 8, **CHANNELS}
 
 
 def _features(batch_size: int = 2) -> dict[str, torch.Tensor]:
@@ -14,6 +15,13 @@ def _features(batch_size: int = 2) -> dict[str, torch.Tensor]:
         "p3": torch.randn(batch_size, 16, 16, 20),
         "p4": torch.randn(batch_size, 32, 8, 10),
         "p5": torch.randn(batch_size, 64, 4, 5),
+    }
+
+
+def _p2_features(batch_size: int = 2) -> dict[str, torch.Tensor]:
+    return {
+        "p2": torch.randn(batch_size, 8, 32, 40),
+        **_features(batch_size),
     }
 
 
@@ -39,6 +47,31 @@ def test_detection_head_outputs_expected_raw_channels() -> None:
         assert predictions[level].class_logits.shape == (2, 5, height, width)
 
 
+def test_p2_pan_fpn_and_detection_head_output_four_scales() -> None:
+    neck = P2PANFPN(P2_CHANNELS).eval()
+    head = AnchorFreeDetectHead(
+        P2_CHANNELS,
+        num_classes=5,
+        reg_max=16,
+        feature_names=("p2", "p3", "p4", "p5"),
+    ).eval()
+
+    with torch.no_grad():
+        neck_outputs = neck(_p2_features())
+        predictions = head(neck_outputs)
+
+    expected_shapes = {
+        "p2": (32, 40),
+        "p3": (16, 20),
+        "p4": (8, 10),
+        "p5": (4, 5),
+    }
+    for level, spatial_shape in expected_shapes.items():
+        assert neck_outputs[level].shape[2:] == spatial_shape
+        assert predictions[level].box_distribution.shape == (2, 64, *spatial_shape)
+        assert predictions[level].class_logits.shape == (2, 5, *spatial_shape)
+
+
 def test_end_to_end_detector_forward_and_parameter_breakdown() -> None:
     model = QAFDetector(
         width_multiple=0.125,
@@ -58,6 +91,24 @@ def test_end_to_end_detector_forward_and_parameter_breakdown() -> None:
 
     counts = model.parameter_breakdown()
     assert counts["total"] == sum(counts[name] for name in ("backbone", "qaf", "neck", "head"))
+
+
+def test_p2_detector_forward_adds_stride_four_predictions() -> None:
+    model = QAFDetector(
+        width_multiple=0.125,
+        depth_multiple=0.1,
+        max_channels=128,
+        use_p2_head=True,
+    ).eval()
+    inputs = torch.randn(1, 3, 128, 160)
+
+    with torch.no_grad():
+        output = model(inputs, inputs)
+
+    assert set(output.predictions) == {"p2", "p3", "p4", "p5"}
+    assert output.predictions["p2"].class_logits.shape == (1, 5, 32, 40)
+    assert output.predictions["p3"].class_logits.shape == (1, 5, 16, 20)
+    assert torch.equal(output.modality_weights["p2"], torch.full((1, 2), 0.5))
 
 
 def test_end_to_end_backward_reaches_all_components() -> None:

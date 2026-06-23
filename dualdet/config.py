@@ -25,12 +25,15 @@ class ModelConfig:
     max_channels: int = 512
     neck_repeats: int = 1
     reg_max: int = 16
+    use_p2_head: bool = False
 
     def __post_init__(self) -> None:
         if not self.experiment_name.strip():
             raise ValueError("experiment_name must not be empty")
         if self.fusion_mode not in ("fixed", "qaf"):
             raise ValueError("fusion_mode must be 'fixed' or 'qaf'")
+        if not isinstance(self.use_p2_head, bool):
+            raise ValueError("use_p2_head must be a boolean")
         if not self.class_names or any(not name.strip() for name in self.class_names):
             raise ValueError("class_names must contain non-empty names")
         if len(set(self.class_names)) != len(self.class_names):
@@ -76,6 +79,7 @@ class ModelConfig:
             neck_repeats=self.neck_repeats,
             reg_max=self.reg_max,
             fusion_mode=self.fusion_mode,
+            use_p2_head=self.use_p2_head,
         )
 
     def controlled_signature(self) -> dict[str, Any]:
@@ -84,4 +88,11 @@ class ModelConfig:
         values = asdict(self)
         values.pop("experiment_name")
         values.pop("fusion_mode")
+        return values
+
+    def p2_controlled_signature(self) -> dict[str, Any]:
+        """Return fields that must match between E2 and E3 except P2 usage."""
+
+        values = self.controlled_signature()
+        values.pop("use_p2_head")
         return values

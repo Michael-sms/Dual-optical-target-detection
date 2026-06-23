@@ -55,8 +55,8 @@ class DetectionScaleHead(nn.Module):
 class AnchorFreeDetectHead(nn.Module):
     """Produce YOLOv8-style raw predictions without an objectness branch."""
 
-    feature_names = ("p3", "p4", "p5")
-    strides = {"p3": 8, "p4": 16, "p5": 32}
+    default_feature_names = ("p3", "p4", "p5")
+    strides = {"p2": 4, "p3": 8, "p4": 16, "p5": 32}
 
     def __init__(
         self,
@@ -64,11 +64,18 @@ class AnchorFreeDetectHead(nn.Module):
         num_classes: int = 5,
         reg_max: int = 16,
         class_prior_probability: float = 0.01,
+        feature_names: tuple[str, ...] | None = None,
     ) -> None:
         super().__init__()
+        self.feature_names = feature_names or self.default_feature_names
         expected = set(self.feature_names)
+        if not self.feature_names:
+            raise ValueError("feature_names must not be empty")
+        if any(level not in self.strides for level in self.feature_names):
+            raise ValueError("feature_names may only contain p2, p3, p4 and p5")
         if set(feature_channels) != expected:
-            raise ValueError("feature_channels must contain exactly p3, p4 and p5")
+            expected_names = ", ".join(self.feature_names)
+            raise ValueError(f"feature_channels must contain exactly {expected_names}")
         if num_classes <= 0:
             raise ValueError("num_classes must be positive")
         if reg_max <= 1:
@@ -99,7 +106,8 @@ class AnchorFreeDetectHead(nn.Module):
 
     def _validate_features(self, features: Mapping[str, Tensor]) -> None:
         if set(features) != set(self.feature_names):
-            raise ValueError("features must contain exactly p3, p4 and p5")
+            expected_names = ", ".join(self.feature_names)
+            raise ValueError(f"features must contain exactly {expected_names}")
         for level in self.feature_names:
             tensor = features[level]
             if tensor.ndim != 4:
