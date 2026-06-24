@@ -9,11 +9,13 @@ from torch import Tensor, nn
 from torch.nn import functional as F
 
 from dualdet.models.backbone import C2f, ConvBNAct, FeaturePyramid
+from dualdet.models.head import DepthwiseSeparableConv
 
 
 class PANFPN(nn.Module):
     """Aggregate fused features with top-down and bottom-up paths."""
 
+    input_feature_names = ("p3", "p4", "p5")
     feature_names = ("p3", "p4", "p5")
 
     def __init__(self, feature_channels: Mapping[str, int], repeats: int = 1) -> None:
@@ -22,7 +24,7 @@ class PANFPN(nn.Module):
         if repeats <= 0:
             raise ValueError("repeats must be positive")
 
-        c3, c4, c5 = (feature_channels[level] for level in self.feature_names)
+        c3, c4, c5 = (feature_channels[level] for level in self.input_feature_names)
         self._feature_channels = dict(feature_channels)
 
         self.p5_reduce = ConvBNAct(c5, c4, kernel_size=1)
@@ -37,7 +39,7 @@ class PANFPN(nn.Module):
 
     @classmethod
     def _validate_channel_config(cls, feature_channels: Mapping[str, int]) -> None:
-        expected = set(cls.feature_names)
+        expected = set(cls.input_feature_names)
         actual = set(feature_channels)
         if actual != expected:
             raise ValueError("feature_channels must contain exactly p3, p4 and p5")
@@ -45,10 +47,10 @@ class PANFPN(nn.Module):
             raise ValueError("all feature channel counts must be positive")
 
     def _validate_features(self, features: Mapping[str, Tensor]) -> None:
-        expected = set(self.feature_names)
+        expected = set(self.input_feature_names)
         if set(features) != expected:
             raise ValueError("features must contain exactly p3, p4 and p5")
-        for level in self.feature_names:
+        for level in self.input_feature_names:
             tensor = features[level]
             if tensor.ndim != 4:
                 raise ValueError(f"{level} must have shape [N, C, H, W]")
@@ -57,7 +59,7 @@ class PANFPN(nn.Module):
                 raise ValueError(
                     f"{level} has {tensor.shape[1]} channels; expected {expected_channels}"
                 )
-        p3, p4, p5 = (features[level] for level in self.feature_names)
+        p3, p4, p5 = (features[level] for level in self.input_feature_names)
         if p3.shape[0] != p4.shape[0] or p4.shape[0] != p5.shape[0]:
             raise ValueError("all feature levels must have the same batch size")
         if p3.shape[2] != p4.shape[2] * 2 or p3.shape[3] != p4.shape[3] * 2:
@@ -79,7 +81,7 @@ class PANFPN(nn.Module):
         """Return context-enhanced P3/P4/P5 features with unchanged shapes."""
 
         self._validate_features(features)
-        p3, p4, p5 = (features[level] for level in self.feature_names)
+        p3, p4, p5 = (features[level] for level in self.input_feature_names)
 
         p5_reduced = self.p5_reduce(p5)
         p4_td = self.p4_top_down(
@@ -93,3 +95,36 @@ class PANFPN(nn.Module):
         p4_out = self.p4_out(torch.cat((self.p3_downsample(p3_out), p4_td), dim=1))
         p5_out = self.p5_out(torch.cat((self.p4_downsample(p4_out), p5), dim=1))
         return {"p3": p3_out, "p4": p4_out, "p5": p5_out}
+
+
+class PANFPNWithP2(PANFPN):
+    """Extend PAN-FPN with a lightweight stride-4 P2 output for small objects."""
+
+    feature_names = ("p2", "p3", "p4", "p5")
+
+    @classmethod
+    def _validate_channel_config(cls, feature_channels: Mapping[str, int]) -> None:
+        PANFPN._validate_channel_config(feature_channels)
+
+    def __init__(
+        self,
+        feature_channels: Mapping[str, int],
+        repeats: int = 1,
+        p2_channels: int | None = None,
+    ) -> None:
+        super().__init__(feature_channels, repeats=repeats)
+        c3 = feature_channels["p3"]
+        self._p2_channels = p2_channels or c3
+        self.p2_out = nn.Sequential(
+            nn.Upsample(scale_factor=2, mode="nearest"),
+            DepthwiseSeparableConv(c3, self._p2_channels),
+        )
+        self._feature_channels = {
+            **self._feature_channels,
+            "p2": self._p2_channels,
+        }
+
+    def forward(self, features: Mapping[str, Tensor]) -> FeaturePyramid:
+        outputs = super().forward(features)
+        outputs["p2"] = self.p2_out(outputs["p3"])
+        return outputs
