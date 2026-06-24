@@ -21,3 +21,8 @@ python scripts/analyze_predictions.py `
 ```
 
 正式 E1-E3 数值对比需要等待训练 checkpoint 和验证集预测结果。
+
+其他成员现在都可以正式开展其实现工作，但部分最终产出仍依赖训练结果:
+成员2:已完全解除模型接口阻塞，可以加载E1/E2配置，完成数据管线、损失、训练循环并正式训练
+成员3:可以完成指标分析工具和P2Head;正式E1-E3对比要等待成员2的checkpoint
+成员4:可以完成解码、NMS、评估、JSON导出、README和报告框架;最终结果文件和报告数据要等待最终checkpoint

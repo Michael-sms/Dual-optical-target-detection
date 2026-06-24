@@ -57,6 +57,7 @@ class AnchorFreeDetectHead(nn.Module):
 
     default_feature_names = ("p3", "p4", "p5")
     strides = {"p2": 4, "p3": 8, "p4": 16, "p5": 32}
+    default_strides = strides
 
     def __init__(
         self,
@@ -65,13 +66,24 @@ class AnchorFreeDetectHead(nn.Module):
         reg_max: int = 16,
         class_prior_probability: float = 0.01,
         feature_names: tuple[str, ...] | None = None,
+        use_p2: bool | None = None,
     ) -> None:
         super().__init__()
-        self.feature_names = feature_names or self.default_feature_names
+        if feature_names is not None and use_p2 is not None:
+            expected_from_flag = ("p2", "p3", "p4", "p5") if use_p2 else self.default_feature_names
+            if tuple(feature_names) != expected_from_flag:
+                raise ValueError("feature_names and use_p2 specify different feature levels")
+
+        if feature_names is None:
+            feature_names = ("p2", "p3", "p4", "p5") if use_p2 else self.default_feature_names
+        self.feature_names = tuple(feature_names)
+        self.use_p2 = "p2" in self.feature_names
+        self.strides = {level: self.default_strides[level] for level in self.feature_names}
+
         expected = set(self.feature_names)
         if not self.feature_names:
             raise ValueError("feature_names must not be empty")
-        if any(level not in self.strides for level in self.feature_names):
+        if any(level not in self.default_strides for level in self.feature_names):
             raise ValueError("feature_names may only contain p2, p3, p4 and p5")
         if set(feature_channels) != expected:
             expected_names = ", ".join(self.feature_names)
@@ -121,7 +133,7 @@ class AnchorFreeDetectHead(nn.Module):
     def forward(
         self, features: Mapping[str, Tensor]
     ) -> dict[str, ScalePredictions]:
-        """Return raw DFL distributions and class logits at three scales."""
+        """Return raw DFL distributions and class logits for configured scales."""
 
         self._validate_features(features)
         return {
