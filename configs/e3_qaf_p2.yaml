@@ -1,0 +1,28 @@
+experiment: e3
+data:
+  root: data
+  train_split: train
+  val_split: val
+model:
+  num_classes: 5
+  width_multiple: 0.5
+  depth_multiple: 0.33
+  max_channels: 512
+  reg_max: 16
+train:
+  epochs: 50
+  batch_size: 8
+  num_workers: 4
+  lr: 0.001
+  weight_decay: 0.0005
+  warmup_epochs: 3
+  amp: true
+  seed: 42
+  log_interval: 20
+  min_box_size: 2.0
+  early_stop_patience: 10
+  early_stop_min_epochs: 20
+  early_stop_min_delta: 0.0001
+  eval_ap: true
+output:
+  dir: outputs/e3_qaf_p2
