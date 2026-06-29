@@ -12,6 +12,7 @@ dependencies = [
     "pyyaml>=6,<7",
     "torch==2.4.1",
     "torchvision==0.19.1",
+    "ultralytics>=8.4.82",
 ]
 
 [project.optional-dependencies]
