@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fine-tune a pretrained Ultralytics YOLOv8 model on the RGB split."""
+"""Fine-tune a pretrained Ultralytics YOLOv8 model on one modality."""
 
 from __future__ import annotations
 

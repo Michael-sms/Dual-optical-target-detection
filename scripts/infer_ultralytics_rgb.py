@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Export Ultralytics RGB test predictions to competition COCO JSON."""
+"""Export Ultralytics single-modality predictions to competition COCO JSON."""
 
 from __future__ import annotations
 

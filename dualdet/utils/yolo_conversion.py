@@ -1,4 +1,4 @@
-"""Convert the project's COCO RGB splits to an Ultralytics YOLO dataset."""
+"""Convert one modality of the project's COCO splits to Ultralytics YOLO."""
 
 from __future__ import annotations
 
@@ -130,12 +130,15 @@ def materialize_test_split(
     return {"images": len(images)}
 
 
-def convert_rgb_dataset(
+def convert_modality_dataset(
     data_root: str | Path,
     output_root: str | Path,
     *,
+    modality: str,
     image_mode: str = "hardlink",
 ) -> dict[str, Any]:
+    if modality not in {"rgb", "tir"}:
+        raise ValueError("modality must be rgb or tir")
     data_root = Path(data_root).resolve()
     output_root = Path(output_root).resolve()
     summaries: dict[str, Any] = {}
@@ -144,7 +147,7 @@ def convert_rgb_dataset(
     for split in ("train", "val"):
         summary, split_class_names = convert_annotated_split(
             annotation_path=data_root / split / f"{split}.json",
-            source_image_dir=data_root / split / "rgb",
+            source_image_dir=data_root / split / modality,
             output_image_dir=output_root / "images" / split,
             output_label_dir=output_root / "labels" / split,
             image_mode=image_mode,
@@ -156,7 +159,7 @@ def convert_rgb_dataset(
         summaries[split] = summary
 
     summaries["test"] = materialize_test_split(
-        source_image_dir=data_root / "test" / "rgb",
+        source_image_dir=data_root / "test" / modality,
         output_image_dir=output_root / "images" / "test",
         image_mode=image_mode,
     )
@@ -171,7 +174,7 @@ def convert_rgb_dataset(
         "names": {index: name for index, name in enumerate(class_names)},
     }
     output_root.mkdir(parents=True, exist_ok=True)
-    yaml_path = output_root / "rgb_dataset.yaml"
+    yaml_path = output_root / f"{modality}_dataset.yaml"
     yaml_path.write_text(
         yaml.safe_dump(dataset_yaml, sort_keys=False, allow_unicode=True),
         encoding="utf-8",
@@ -179,6 +182,7 @@ def convert_rgb_dataset(
     report = {
         "source": str(data_root),
         "output": str(output_root),
+        "modality": modality,
         "image_mode": image_mode,
         "class_names": class_names,
         "splits": summaries,
@@ -188,3 +192,16 @@ def convert_rgb_dataset(
         json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8"
     )
     return report
+
+
+def convert_rgb_dataset(
+    data_root: str | Path,
+    output_root: str | Path,
+    *,
+    image_mode: str = "hardlink",
+) -> dict[str, Any]:
+    """Backward-compatible RGB conversion wrapper."""
+
+    return convert_modality_dataset(
+        data_root, output_root, modality="rgb", image_mode=image_mode
+    )

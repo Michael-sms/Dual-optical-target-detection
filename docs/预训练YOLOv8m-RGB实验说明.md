@@ -124,3 +124,62 @@ python -c "from ultralytics import YOLO; m=YOLO('outputs/ultralytics/yolov8m_rgb
 - 若仍低于 `0.25`，暂不训练 TIR YOLOv8m，先检查类别映射、预训练加载和验证/测试域差异。
 
 融合后参数量必须填写所有实际参与推理模型参数量之和，不能继续沿用当前四模型的 `52.91M`。
+
+## 9. TIR 后续实验
+
+RGB YOLOv8m 的验证集 COCO JSON 回放 AP 为 `0.444`，但测试网站 mAP 仅为 `0.090413`，说明纯 RGB 在隐藏测试集上存在严重泛化下降，因此不加入最终融合。下一步使用相同预训练模型和标签训练 TIR 单模型。
+
+先上传更新后的 `dualdet/utils/yolo_conversion.py` 与 `scripts/convert_coco_to_yolo_rgb.py`，然后在服务器转换 TIR：
+
+```bash
+python scripts/convert_coco_to_yolo_rgb.py \
+  --data-root data \
+  --modality tir \
+  --output-root data/yolo_tir \
+  --image-mode hardlink
+```
+
+冒烟训练：
+
+```bash
+python scripts/train_ultralytics_rgb.py \
+  --data data/yolo_tir/tir_dataset.yaml \
+  --model yolov8m.pt \
+  --imgsz 960 \
+  --batch 16 \
+  --epochs 1 \
+  --name yolov8m_tir_smoke
+```
+
+正式训练：
+
+```bash
+mkdir -p outputs/ultralytics
+nohup python scripts/train_ultralytics_rgb.py \
+  --data data/yolo_tir/tir_dataset.yaml \
+  --model yolov8m.pt \
+  --imgsz 960 \
+  --batch 16 \
+  --epochs 100 \
+  --patience 20 \
+  --close-mosaic 10 \
+  --name yolov8m_tir_pretrained \
+  > outputs/ultralytics/yolov8m_tir_train.log 2>&1 &
+echo $! > outputs/ultralytics/yolov8m_tir_train.pid
+```
+
+最佳权重预期位于 `outputs/ultralytics/yolov8m_tir_pretrained/weights/best.pt`。测试导出：
+
+```bash
+python scripts/infer_ultralytics_rgb.py \
+  --checkpoint outputs/ultralytics/yolov8m_tir_pretrained/weights/best.pt \
+  --source data/yolo_tir/images/test \
+  --output outputs/result_yolov8m_tir_iou070_c003.json \
+  --imgsz 960 \
+  --batch 16 \
+  --conf 0.003 \
+  --iou 0.70 \
+  --max-det 300
+```
+
+若 JSON 超过 5MB，依次提高 `--conf` 至 `0.005`、`0.006`，并保证输出文件名中的阈值与实际参数一致。先单独提交 TIR 结果；只有线上有效时才与当前四模型融合。

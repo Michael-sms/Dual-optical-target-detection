@@ -1,2 +1,0 @@
-# Optional dependency set for the pretrained RGB YOLOv8m experiment.
-ultralytics>=8.3,<9
