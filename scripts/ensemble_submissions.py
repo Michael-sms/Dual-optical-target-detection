@@ -13,6 +13,20 @@ from typing import Any, Sequence
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--inputs", type=Path, nargs="+", required=True)
+    parser.add_argument(
+        "--weights",
+        type=float,
+        nargs="+",
+        default=None,
+        help="Optional confidence multiplier for each input.",
+    )
+    parser.add_argument(
+        "--input-score-thresholds",
+        type=float,
+        nargs="+",
+        default=None,
+        help="Optional unscaled confidence threshold for each input.",
+    )
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--score-threshold", type=float, default=0.002)
     parser.add_argument("--nms-iou", type=float, default=0.70)
@@ -46,15 +60,31 @@ def classwise_nms(records: list[dict[str, Any]], iou_threshold: float) -> list[d
 
 def main() -> None:
     args = parse_args()
+    weights = args.weights or [1.0] * len(args.inputs)
+    input_thresholds = args.input_score_thresholds or [args.score_threshold] * len(args.inputs)
+    if len(weights) != len(args.inputs):
+        raise ValueError("--weights must contain one value per input")
+    if len(input_thresholds) != len(args.inputs):
+        raise ValueError("--input-score-thresholds must contain one value per input")
+    if any(weight <= 0.0 for weight in weights):
+        raise ValueError("input weights must be positive")
     grouped: dict[tuple[int, int], list[dict[str, Any]]] = defaultdict(list)
     input_counts: dict[str, int] = {}
 
-    for input_path in args.inputs:
+    for input_path, weight, input_threshold in zip(
+        args.inputs, weights, input_thresholds, strict=True
+    ):
         records = json.loads(input_path.read_text(encoding="utf-8"))
         input_counts[str(input_path)] = len(records)
         for record in records:
-            if float(record["score"]) >= args.score_threshold:
-                grouped[(int(record["image_id"]), int(record["category_id"]))].append(record)
+            original_score = float(record["score"])
+            scaled_score = original_score * weight
+            if original_score >= input_threshold and scaled_score >= args.score_threshold:
+                weighted_record = dict(record)
+                weighted_record["score"] = round(min(scaled_score, 1.0), 6)
+                grouped[(int(record["image_id"]), int(record["category_id"]))].append(
+                    weighted_record
+                )
 
     by_image: dict[int, list[dict[str, Any]]] = defaultdict(list)
     for (image_id, _), records in grouped.items():
@@ -74,7 +104,17 @@ def main() -> None:
         json.dumps(fused, ensure_ascii=False, separators=(",", ":")),
         encoding="utf-8",
     )
-    print(json.dumps({"inputs": input_counts, "output": str(args.output), "records": len(fused)}))
+    print(
+        json.dumps(
+            {
+                "inputs": input_counts,
+                "weights": weights,
+                "input_score_thresholds": input_thresholds,
+                "output": str(args.output),
+                "records": len(fused),
+            }
+        )
+    )
 
 
 if __name__ == "__main__":
